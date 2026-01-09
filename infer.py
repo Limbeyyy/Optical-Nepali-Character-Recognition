@@ -15,34 +15,12 @@ model.load_state_dict(ckpt["model_state_dict"])
 model.to(DEVICE)
 model.eval()
 
-# ---------------- MATRA MAP ----------------
-UPPER_MATRAS = {
-    "small": "ि",
-    "long": "ी",
-    "ai": "ै",
-    "anusvara": "ं",
-    "chandra": "ँ"
-}
-
-LOWER_MATRAS = {
-    "u": "ु",
-    "uu": "ू",
-    "r": "ृ"
-}
-
-
-
-
 # ---------------- BASIC UTILS ----------------
 
 def binarize(img):
     _, th = cv2.threshold(img, 0, 255,
                           cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
-
     return th
-
-
-
 
 def crop_text(img):
     rows = np.sum(img > 0, axis=1)
@@ -54,38 +32,35 @@ def crop_text(img):
     return img[t:b, l:r]
 
 def is_valid_component(p):
-    if p is None:
+    return p is not None and np.count_nonzero(p) >= 20 and p.shape[0] >= 3 and p.shape[1] >= 3
+
+
+def is_real_base(p, header):
+    """Return True if component is likely a base consonant, not a matra."""
+    rows = np.where(np.sum(p > 0, axis=1) > 0)[0]
+    if len(rows) == 0:
         return False
-    if np.count_nonzero(p) < 20:   # VERY IMPORTANT
-        return False
-    h, w = p.shape
-    if h < 3 or w < 3:
-        return False
-    return True
+    top, bottom = rows[0], rows[-1]
+    # Heuristic: base should be around header ± small margin
+    return top <= header + 4 and bottom >= header - 4
 
 
 def resize_and_center(img, size=32):
     h, w = img.shape
-
+    # Skip empty or zero-size images
     if h == 0 or w == 0:
         return None
-
     scale = size / max(h, w)
-    new_w = max(1, int(w * scale))
-    new_h = max(1, int(h * scale))
-
-    img = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_AREA)
-
+    if int(w*scale) == 0 or int(h*scale) == 0:
+        return None
+    img = cv2.resize(img, (int(w*scale), int(h*scale)), interpolation=cv2.INTER_AREA)
     canvas = np.zeros((size, size), dtype=np.uint8)
-
-    x_offset = (size - new_w) // 2
-    y_offset = (size - new_h) // 2
-
-    canvas[y_offset:y_offset+new_h, x_offset:x_offset+new_w] = img
+    y, x = (size-img.shape[0])//2, (size-img.shape[1])//2
+    canvas[y:y+img.shape[0], x:x+img.shape[1]] = img
     return canvas
 
 
-# ---------------- HEADER LINE ----------------
+# ---------------- HEADER ----------------
 
 def detect_header(img):
     upper = int(0.55 * img.shape[0])
@@ -95,136 +70,134 @@ def remove_header(img, row):
     img[row:row+2, :] = 0
     return img
 
+# ---------------- COLUMN FILTERS ----------------
 
-
-def is_valid_column(col, min_pixels=40, min_width=4):
-    if col is None:
-        return False
-
-    h, w = col.shape
-
-    # Too narrow → pollution
-    if w < min_width:
-        return False
-
-    # Too few pixels → noise
-    if np.count_nonzero(col) < min_pixels:
-        return False
-
-    return True
-
+def is_valid_column(col, min_pixels=10, min_width=2):
+    return col is not None and col.shape[1] >= min_width and np.count_nonzero(col) >= min_pixels
+    
 
 def is_matra_only(col, header):
     rows = np.where(np.sum(col > 0, axis=1) > 0)[0]
     if len(rows) == 0:
-        return True
-
+        return False
     top, bottom = rows[0], rows[-1]
-
-    # Entire content above or below base zone
-    if bottom < header - 2:
-        return True
-    if top > header + 6:
-        return True
-
-    return False
-
-
-# ---------------- SEGMENT WORD ----------------
-
-def segment_columns(img):
-    col_sum = np.sum(img > 0, axis=0)
-    thresh = 0.03 * col_sum.max()
-    splits, s = [], None
-    cols = []
-
-    for i, v in enumerate(col_sum):
-        if v > thresh and s is None:
-            s = i
-        elif v <= thresh and s is not None:
-            splits.append((s, i))
-            s = None
-    if s:
-        splits.append((s, len(col_sum)))
-        
-
-    for a, b in splits:
-        col = img[:, a:b]
-        if is_valid_column(col):
-            cols.append(col)
-    return cols
-
+    return bottom < header - 2 or top > header + 6
 
 def is_shirorekha_only(col):
     h, w = col.shape
     upper = int(0.55 * h)
     row_sum = np.sum(col[:upper] > 0, axis=1)
+    return row_sum.max() > 0.8 * w and np.count_nonzero(col) < 60
 
-    if row_sum.max() > 0.8 * w and np.count_nonzero(col) < 60:
-        return True
-    return False
+# ---------------- SEGMENT WORD ----------------
+from scipy.signal import find_peaks
+import numpy as np
+import cv2
 
+def segment_columns(img, min_abs_pixels=3, min_width=2, valley_prominence=0.1, max_merge_gap=2):
+    """
+    Robust column segmentation for both thick and thin characters using valley detection,
+    with improved merging to avoid splitting letters.
 
+    Args:
+        img: binary image (text=white, background=black)
+        min_abs_pixels: minimum absolute pixels to avoid noise
+        min_width: minimum width of a column to be valid
+        valley_prominence: fraction of max column sum to detect valleys
+        max_merge_gap: maximum gap (in pixels) to merge nearby narrow columns
 
-# ---------------- MATRA DETECTION ----------------
+    Returns:
+        List of tuples: (column_img, start_x, end_x)
+    """
+    col_sum = np.sum(img > 0, axis=0)
+
+    # Smooth with moving average
+    kernel_size = max(2, img.shape[1] // 100)
+    col_sum_smooth = np.convolve(col_sum, np.ones(kernel_size)/kernel_size, mode='same')
+
+    # Invert column sum to find valleys
+    inverted = col_sum_smooth.max() - col_sum_smooth
+    prominence = valley_prominence * col_sum_smooth.max()
+    valleys, _ = find_peaks(inverted, prominence=prominence, distance=2)
+
+    # Define column boundaries using valleys
+    boundaries = [0] + list(valleys) + [img.shape[1]]
+    cols = []
+    for i in range(len(boundaries)-1):
+        start, end = boundaries[i], boundaries[i+1]
+        col = img[:, start:end]
+        if col.shape[1] >= 1 and np.count_nonzero(col) >= min_abs_pixels:
+            cols.append((col, start, end))
+
+    # ---------------- Merge very narrow columns / small gaps ----------------
+    if not cols:
+        return []
+
+    merged_cols = [cols[0]]
+    for c in cols[1:]:
+        prev_col, prev_start, prev_end = merged_cols[-1]
+        curr_col, curr_start, curr_end = c
+        gap = curr_start - prev_end
+
+        # Merge if gap is very small or previous column is narrow
+        if gap <= max_merge_gap or prev_col.shape[1] < min_width:
+            merged_img = np.zeros((img.shape[0], prev_col.shape[1] + gap + curr_col.shape[1]), dtype=np.uint8)
+            merged_img[:, :prev_col.shape[1]] = prev_col
+            merged_img[:, prev_col.shape[1]+gap:] = curr_col
+            merged_cols[-1] = (merged_img, prev_start, curr_end)
+        else:
+            merged_cols.append(c)
+
+    # Final filtering: remove empty or zero-width columns
+    final_cols = []
+    for col, a, b in merged_cols:
+        if col.shape[1] > 0 and np.count_nonzero(col) > 0:
+            final_cols.append((col, a, b))
+
+    return final_cols
+
+# ---------------- MATRA ----------------
 
 def classify_upper_matra(img, header):
-    """
-    Rule-based upper matra detection.
-    """
-    h, w = img.shape
     rows = np.where(np.sum(img > 0, axis=1) > 0)[0]
-
-    if len(rows) == 0:
+    if len(rows) == 0 or rows[0] > header - 3:
         return ""
+    h = rows[-1] - rows[0]
+    relative_h = h / img.shape[0]  # fraction of image height
 
-    top = rows[0]
-
-    # Must lie ABOVE header
-    if top > header - 3:
-        return ""
-
-    height = rows[-1] - rows[0]
-
-    if height <= 3:
-        return "ि"   # short i
-    elif height <= 6:
-        return "ी"   # long i
+    if relative_h < 1.5:
+        return "ि"
+    elif relative_h < 1.6:
+        return "ी"
     else:
-        return "ै"   # ai (fallback)
+        return "ै"
 
 
 def classify_lower_matra(img, header):
+    """
+    Classify lower matras (ु, ू, ृ) based on relative height.
+    
+    img: binary image of the component
+    header: row index of the shirorekha/header
+    """
     rows = np.where(np.sum(img > 0, axis=1) > 0)[0]
-    if len(rows) == 0:
+    if len(rows) == 0 or rows[-1] < header + 4:
         return ""
 
-    bottom = rows[-1]
+    h = rows[-1] - rows[0]
+    relative_h = h / img.shape[0]  # fraction of component height
 
-    if bottom < header + 4:
-        return ""
-
-    height = rows[-1] - rows[0]
-
-    if height <= 4:
+    if relative_h < 1.5:
         return "ु"
-    elif height <= 7:
+    elif relative_h < 1.6:
         return "ू"
     else:
         return "ृ"
 
 
-# ---------------- SHIROREKHA CHECK ----------------
-
 def has_shirorekha(img):
-    """
-    Return True if a horizontal shirorekha (headline) exists.
-    """
     upper = int(0.55 * img.shape[0])
-    row_sums = np.sum(img[:upper] > 0, axis=1)
-    max_val = row_sums.max()
-    # Line must cover at least 50% of width
-    return max_val > 0.5 * img.shape[1]
+    return np.sum(img[:upper] > 0, axis=1).max() > 0.5 * img.shape[1]
 
 # ---------------- HALF FORM ----------------
 
@@ -232,117 +205,120 @@ def split_half_form(img, header):
     h, w = img.shape
     if w <= h or w < 6:
         return [img]
-
     cols = np.sum(img[header+1:] > 0, axis=0)
     cut = int(np.argmax(cols))
-
     parts = []
     if is_valid_component(img[:, :cut]):
         parts.append(img[:, :cut])
     if is_valid_component(img[:, cut:]):
         parts.append(img[:, cut:])
-
     return parts if parts else [img]
 
-# ---------------- CNN INFERENCE ----------------
+# ---------------- CNN ----------------
 
 def infer_base(p):
     img = resize_and_center(p)
+    if img is None:
+        return "?"  # skip invalid slices
     img = img.astype(np.float32)
-    # Try normalization like training: [-1, 1]
     img = (img / 255.0 - 0.5) * 2
-    img = np.expand_dims(img, 0)  # batch
-    img = np.expand_dims(img, 0)  # channel
-    x = torch.tensor(img).to(DEVICE)
-
+    x = torch.tensor(img[None, None]).to(DEVICE)
     with torch.no_grad():
-        preds = model(x)
-        print("Raw model output:", preds)
-        probs = torch.softmax(preds, dim=1)
-        conf, idx = torch.max(probs, dim=1)
-        conf = conf.item()
-        idx = idx.item()
-        print("Predicted index:", idx, "Confidence:", conf)
-        print("IDX2CHAR length:", len(IDX2CHAR))
+        probs = torch.softmax(model(x), dim=1)
+        idx = torch.argmax(probs, dim=1).item()
+    return IDX2CHAR[idx] if idx < len(IDX2CHAR) else "?"
 
-    if idx >= len(IDX2CHAR):
-        print("Index out of range!")
-        return "?"
-    return IDX2CHAR[idx]
-
-
-# ---------------- UPDATED COMPONENT LOOP ----------------
+# ---------------- OCR ----------------
 
 def recognize_word(image_path):
     img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
     if img is None:
-        raise ValueError("Invalid image")
+        raise FileNotFoundError(f"Image not found: {image_path}")
 
-    img = binarize(img)
-    img = crop_text(img)
+    img = crop_text(binarize(img))
+    if img.size == 0:
+        return ""
 
     header = detect_header(img)
     img = remove_header(img, header)
 
     shirorekha_exists = has_shirorekha(img)
-
     columns = segment_columns(img)
-    print("Detected columns:", len(columns))
+    columns = [(c,a,b) for c,a,b in columns
+               if is_valid_column(c)
+               and not is_matra_only(c, header)
+               and not is_shirorekha_only(c)]
 
-    # ---------------- CLEAN COLUMNS ONCE ----------------
-    clean_columns = []
-    for col in columns:
-        if not is_valid_column(col):
-            continue
-        if is_matra_only(col, header):
-            continue
-        if is_shirorekha_only(col):
-            continue
-        clean_columns.append(col)
+    # ---- space thresholds ----
+    gaps = [(columns[i][1] - columns[i-1][2]) for i in range(1, len(columns))]
+    avg_gap = np.mean(gaps) if gaps else 0
+    ABS_SPACE_GAP = int(0.03 * img.shape[1])
+    REL_SPACE_GAP = avg_gap * 1.4
 
-    columns = clean_columns
-    print("Clean columns:", len(columns))
-
-    # ---------------- RESULT INIT (FIXED) ----------------
     result = ""
-    pending_matra = ""
+    pending_pre_matra = ""
 
-    for i, col in enumerate(columns):
+    for i, (col, start_x, end_x) in enumerate(columns):
         print(f"Processing column {i}, pixels:", np.count_nonzero(col))
         cv2.imshow(f"Column {i}", col)
         cv2.waitKey(0)
 
-        parts = split_half_form(col, header)
+        if i > 0:
+            gap = start_x - columns[i-1][2]
+            if gap > REL_SPACE_GAP or gap > ABS_SPACE_GAP:
+                result += " "
 
-        for p in parts:
+        for j, p in enumerate(split_half_form(col, header)):
+
             if not is_valid_component(p):
                 continue
 
-            rows = np.where(np.sum(p > 0, axis=1) > 0)[0]
-            if len(rows) == 0:
-                continue
+            # ---- Detect pre-base (upper) matra ----
+            pre_matra = ""
+            if shirorekha_exists:
+                upper_region = p[:header, :]
+                pre_matra = classify_upper_matra(upper_region, header)
+                if pre_matra:
+                    pending_pre_matra += pre_matra
+                    # Remove just the matra rows
+                    rows_m = np.where(np.sum(upper_region > 0, axis=1) > 0)[0]
+                    if len(rows_m) > 0:
+                        p = p[rows_m[-1]+1:, :]
 
-            top, bottom = rows[0], rows[-1]
+            # ---- Detect post-base (lower) matra ----
+            post_matra = ""
+            if shirorekha_exists:
+                lower_region = p[header:, :]
+                post_matra = classify_lower_matra(lower_region, header)
+                if post_matra:
+                    rows_m = np.where(np.sum(lower_region > 0, axis=1) > 0)[0]
+                    if len(rows_m) > 0:
+                        p = p[:header + rows_m[0], :]
 
-            # Upper matra
-            if shirorekha_exists and top < header - 2:
-                pending_matra = classify_upper_matra(p, header)
-                continue
-
-            # Lower matra
-            if shirorekha_exists and bottom > header + int(0.35 * img.shape[0]):
-                pending_matra = classify_lower_matra(p, header)
-                continue
-
-            # Base character
+            # ---- Base character ----
             base = infer_base(p)
-            if base:
-                result += base
-                if pending_matra:
-                    result += pending_matra
-                    pending_matra = ""
+
+            if pending_pre_matra:
+                if is_real_base(p, header):
+                    result += pending_pre_matra + base
+                    pending_pre_matra = ""
+                else:
+                    # This is not a valid base, skip attaching pending matra
+                    continue
+            else:
+                if is_real_base(p, header):
+                    result += base
+
+
+            # ---- DEBUG OUTPUT ----
+            print(f"Column: {i} Start-End: {start_x} {end_x} Pixels: {np.count_nonzero(col)}")
+            print(f"Component: {j} Top-Bottom: {np.where(np.sum(p>0,axis=1)>0)[0][0] if np.count_nonzero(p) else 0} {np.where(np.sum(p>0,axis=1)>0)[0][-1] if np.count_nonzero(p) else 0}")
+            print(f"Pre-base matra: {pre_matra} Post-base matra: {post_matra}")
+            print(f"Base: {base}")
+            print(f"Current result: {result}\n")
 
     return result
+
 
 
 # ---------------- MAIN ----------------
