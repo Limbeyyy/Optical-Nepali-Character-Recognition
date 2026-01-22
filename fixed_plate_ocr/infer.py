@@ -86,6 +86,43 @@ def resize_and_center(img, size=32):
     return canvas
 
 
+def visualize_column_splits(bin_img, columns, field):
+    h, w = bin_img.shape
+
+    # ---- Histogram visualization ----
+    col_sum = np.sum(bin_img > 0, axis=0)
+    hist = np.zeros((h, w, 3), dtype=np.uint8)
+
+    for x in range(w):
+        v = int(col_sum[x] / col_sum.max() * h) if col_sum.max() > 0 else 0
+        cv2.line(hist, (x, h), (x, h - v), (0, 255, 0), 1)
+
+    save_debug(hist, "04_column_histogram.png", field)
+
+    # ---- Overlay split lines ----
+    overlay = cv2.cvtColor(bin_img, cv2.COLOR_GRAY2BGR)
+
+    for col in columns:
+        xs = np.where(np.sum(col > 0, axis=0) > 0)[0]
+        if len(xs) == 0:
+            continue
+        x_start = xs[0]
+        x_end = xs[-1]
+        cv2.rectangle(
+            overlay,
+            (x_start, 0),
+            (x_end, h),
+            (255, 0, 0),
+            1
+        )
+
+    save_debug(overlay, "05_column_splits.png", field)
+
+    # ---- Save each column ----
+    for i, col in enumerate(columns):
+        save_debug(col, f"06_column_{i}.png", field)
+
+
 # ---------------- HEADER ----------------
 
 def detect_header(img):
@@ -127,26 +164,35 @@ def is_shirorekha_only(col):
     return row_sum.max() > 0.8 * w and np.count_nonzero(col) < 60
 
 
-def segment_columns(img):
+def segment_columns(img, field=None):
     col_sum = np.sum(img > 0, axis=0)
-    thresh = 0.03 * col_sum.max()
-    splits, s = [], None
+    thresh = max(5, 0.03 * col_sum.max())
+
+    splits = []
+    start = None
 
     for i, v in enumerate(col_sum):
-        if v > thresh and s is None:
-            s = i
-        elif v <= thresh and s is not None:
-            splits.append((s, i))
-            s = None
-    if s:
-        splits.append((s, len(col_sum)))
+        if v > thresh and start is None:
+            start = i
+        elif v <= thresh and start is not None:
+            splits.append((start, i))
+            start = None
 
-    cols = []
+    if start is not None:
+        splits.append((start, len(col_sum)))
+
+    columns = []
     for a, b in splits:
         col = img[:, a:b]
         if is_valid_column(col):
-            cols.append(col)
-    return cols
+            columns.append(col)
+
+    # ---- VISUALIZE ----
+    if field is not None:
+        visualize_column_splits(img, columns, field)
+
+    return columns
+
 
 
 # ---------------- MATRA ----------------
@@ -202,7 +248,7 @@ def infer_base(p):
 
 # ---------------- OCR CORE ----------------
 
-def recognize_word(image_or_path):
+def recognize_word(image_or_path, field="global"):
     if isinstance(image_or_path, str):
         img = cv2.imread(image_or_path, cv2.IMREAD_GRAYSCALE)
         if img is None:
@@ -217,7 +263,9 @@ def recognize_word(image_or_path):
     img = remove_header(img, header)
     shirorekha_exists = has_shirorekha(img)
 
-    columns = segment_columns(img)
+    columns = segment_columns(img, field)
+
+
 
     result = ""
     pending_matra = ""
@@ -290,7 +338,8 @@ def recognize_from_rois(image_path):
 
         # ---- OCR ONLY ON ROI ----
         text = recognize_word(roi_gray)
-        results[field] = text
+        results[field] = recognize_word(roi_gray, field)
+
 
     return results
 
