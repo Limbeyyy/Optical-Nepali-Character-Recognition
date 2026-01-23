@@ -21,7 +21,7 @@ model.load_state_dict(ckpt["model_state_dict"], strict=False)
 model.eval()
 
 # --- Load image ---
-img_path = "/home/kataho/Downloads/mallanet_ocr/data/test_images/p_3.jpeg"
+img_path = "/home/kataho/Downloads/mallanet_ocr/data/test_images/p_2.jpeg"
 img = cv2.imread(img_path)
 if img is None:
     raise FileNotFoundError(f"Image not found: {img_path}")
@@ -32,7 +32,8 @@ ROIS_NORM = {
     "KID_No": (0.6281, 0.4787, 0.8888, 0.5321),
     "Plus_Code": (0.4530, 0.5688, 0.7656, 0.6555),
     "Address_Name": (0.2106, 0.6656, 0.7650, 0.8540),
-    "QR Code": (0.7762, 0.6155, 0.9537, 0.8482)
+    "QR Code": (0.7762, 0.6155, 0.9537, 0.8482),
+    "Local_Address": (0.2184, 0.1228, 0.7746, 0.2666)
 }
 
 h, w = img.shape[:2]
