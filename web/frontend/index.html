@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Plate OCR</title>
+<style>
+  body { font-family: Arial, sans-serif; padding: 20px; }
+  canvas { border: 1px solid #ccc; display: block; margin-top: 10px; }
+  #status { margin-top: 10px; font-weight: bold; }
+  button { margin-top: 5px; margin-right: 5px; }
+  #output { background: #f4f4f4; padding: 10px; white-space: pre-wrap; margin-top: 10px; border: 1px solid #ccc; }
+</style>
+</head>
+<body>
+
+<h1>Plate OCR Character Recognition</h1>
+<div style="
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+">
+
+  <label>Select Plate Image:</label>
+  <input type="file" id="imageInput" accept="image/*">
+
+  <label>Select Plate Type:</label>
+  <select id="plateType">
+    <option value="default">Default</option>
+    <option value="manual">Manual</option>
+  </select>
+
+  <button onclick="start()">Start</button>
+
+  <h2>OCR Result:</h2>
+  <pre id="output"></pre>
+</div>
+
+
+<canvas id="canvas" 
+  style="height: 500px;
+  padding: 10px;
+"></canvas>
+<div id="status"></div>
+
+<button id="redoBtn" hidden>Redo</button>
+<button id="nextBtn" hidden>Next</button>
+<button id="okBtn" hidden>OK</button>
+
+
+
+<script src="app.js"></script>
+</body>
+</html>
