@@ -4,6 +4,23 @@ import os
 import re
 
 # ---------------- POST-PROCESSING ----------------
+import re
+
+def preprocess_number(text: str) -> str:
+    if not text:
+        return ""
+
+    # Fix common OCR misreads BEFORE trimming
+    text = re.sub(r'[OoQ]', '0', text)
+
+    #  Remove everything before the first digit
+    text = re.sub(r'^[^\d]+', '', text)
+
+    #  Final cleanup
+    return text.strip()
+
+
+
 def normalize_wada_number(text):
     """
     Replaces any word between 'वडा' and a Devanagari number with 'नं'.

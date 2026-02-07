@@ -6,8 +6,18 @@ import pytesseract
 from fastapi.middleware.cors import CORSMiddleware
 import sys
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
-from OCR_Engine.ocr_engine import run_plate_ocr
+import sys
+import os
+
+PROJECT_ROOT = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "..")
+)
+
+print("PROJECT_ROOT:", PROJECT_ROOT)
+print("Exists OCR_Engine:", os.path.exists(os.path.join(PROJECT_ROOT, "OCR_Engine")))
+
+sys.path.insert(0, PROJECT_ROOT)
+
 
 
 pytesseract.pytesseract.tesseract_cmd = (
@@ -24,6 +34,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+from OCR_Engine.ocr_engine import run_plate_ocr
 
 UPLOAD_DIR = "images"
 TEMPLATE_DIR = r"C:\Users\Hp\Desktop\Optical_Nepali_OCR\OCR_Plate_Processor\Plate_Templates"

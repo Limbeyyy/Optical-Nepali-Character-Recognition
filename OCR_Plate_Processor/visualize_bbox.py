@@ -3,18 +3,23 @@ import torch
 import os
 import numpy as np
 import argparse
-from default_pkatye
+import json
 
 # --- Parse command-line arguments ---
 parser = argparse.ArgumentParser(description="Generate visualizations for each ROI in plate image")
 parser.add_argument("--image", required=True, help="Path to plate image")
-out_dir = r"C:\Users\Hp\Desktop\Optical_Nepali_OCR\OCR_Plate\Plate_Visualizations"
+parser.add_argument(
+    "--out_dir",
+    default=r"C:\Users\Hp\Desktop\Optical_Nepali_OCR\OCR_Plate_Processor\Plate_Visualizations",
+    help="Directory to save ROI visualizations"
+)
 args = parser.parse_args()
+
 
 selected = True
 
 if (selected == True):
-    json_path = r"C:\Users\Hp\Desktop\Optical_Nepali_OCR\OCR_Plate\Plate_Templates\default_plate_template.json"
+    json_path = r"C:\Users\Hp\Desktop\Optical_Nepali_OCR\OCR_Plate_Processor\Plate_Templates\default_next_plate_template.json"
 else:
     json_path = r"C:\Users\Hp\Desktop\Optical_Nepali_OCR\OCR_Plate\Plate_Templates\selected_plate_template.json"
 
