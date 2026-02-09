@@ -2,15 +2,16 @@ import cv2
 import os
 import json
 import argparse
+from config import COORDINATES_OUTPUT_DIR
 
 # --- Parse command-line arguments ---
 parser = argparse.ArgumentParser(description="Draw ROIs on plate image and save normalized coordinates to JSON")
-parser.add_argument("--image", required=True, help="Path to plate image")
-out_dir = r"C:\Users\Hp\Desktop\Optical_Nepali_OCR\OCR_Plate\Plate_Templates"
+parser.add_argument("--image", required=True, help="Path to plate image(USE IMAGES FROM image_dataset FOLDER)")
+JSON_DIR = COORDINATES_OUTPUT_DIR
 args = parser.parse_args()
 
 img_path = args.image
-os.makedirs(out_dir, exist_ok=True)
+os.makedirs(JSON_DIR, exist_ok=True)
 
 if not os.path.exists(img_path):
     raise FileNotFoundError(f"Image not found: {img_path}")
@@ -95,7 +96,7 @@ for i, roi in enumerate(rois, 1):
     print(f"{key_name}: {roi}")
 
 # --- Save to JSON ---
-json_path = os.path.join(out_dir, "selected_plate_template.json")
+json_path = os.path.join(JSON_DIR, "selected_plate_template.json")
 with open(json_path, "w") as f:
     json.dump(roi_dict, f, indent=4)
 

@@ -1,92 +1,111 @@
+
+import os
+import sys
+import re
+import logging
+from typing import Dict
+
 import cv2
 import pytesseract
-import json
-import os
-from OCR_Engine.utils import crop_roi, normalize_wada_number
-from config import LANG
-from QR_Processor.qr_reader import read_qr_from_image
+import numpy as np
+
+# ==========================================================
+# PROJECT PATH SETUP
+# ==========================================================
+
+PROJECT_ROOT = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..")
+)
+sys.path.insert(0, PROJECT_ROOT)
+
+from OCR_Engine.plate_postprocess import post_process_ocr
+from QR_Processor.QR_utils import read_qr_from_image
+from config import DEFAULT_PSM, DEFAULT_OEM, FIELD_OCR_CONFIG   
+from OCR_Engine.engine_utils import run_tesseract, preprocess_for_ocr, basic_text_cleanup
+from config import TESSERACT_PATH, LANG, DEFAULT_OEM, DEFAULT_PSM
+
+# ==========================================================
+# TESSERACT CONFIGURATION
+# ==========================================================
 
 pytesseract.pytesseract.tesseract_cmd = (
-    r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+        TESSERACT_PATH 
 )
 
-def run_plate_ocr(image_path_or_array, rois_json_path):
+# ==========================================================
+# LOGGING SETUP
+# ==========================================================
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s"
+)
+
+logger = logging.getLogger(__name__)
+
+# ==========================================================
+# MAIN OCR FUNCTION
+# ==========================================================
+
+def ocr_image_rois(
+    roi_dict: Dict[str, np.ndarray],
+    clean_text: bool = True
+) -> Dict[str, str]:
     """
-    Run OCR + QR scan on a plate.
-    
-    Parameters:
-        image_path_or_array: str or numpy array
-            - str: path to image
-            - numpy array: image already loaded (e.g., from webcam)
-        rois_json_path: str
-            - path to JSON defining ROIs
-    Returns:
-        dict of field -> text/QR values
+    Run OCR on ROI dictionary and return extracted text.
+
+    Parameters
+    ----------
+    roi_dict : dict
+        field_name -> numpy image
+    clean_text : bool
+        Apply basic regex cleanup
+
+    Returns
+    -------
+    dict : field_name -> OCR text
     """
-    print("\n================= OCR PIPELINE START =================")
-    print(f"[INFO] ROI JSON path: {rois_json_path}")
 
-    with open(rois_json_path, "r") as f:
-        ROIS = json.load(f)
+    results: Dict[str, str] = {}
 
-    print(f"[INFO] Loaded ROIs: {list(ROIS.keys())}")
+    for field, image in roi_dict.items():
 
-    # Load image if path provided
-    if isinstance(image_path_or_array, str):
-        img = cv2.imread(image_path_or_array)
-        print(f"[INFO] Image path: {image_path_or_array}")
-        if img is None:
-            print(" ERROR: Failed to read image from disk")
-            return {}
-    else:
-        img = image_path_or_array
-        print(f"[INFO] Using numpy array image. Shape: {img.shape}")
-
-    results = {}
-
-    for field, roi in ROIS.items():
-        print("\n--------------------------------------")
-        print(f"[FIELD] Processing: {field}")
-        print(f"[ROI] {roi}")
-
-        cropped = crop_roi(img, roi)
-
-        if cropped is None or cropped.size == 0:
-            print(" Cropped image EMPTY")
+        # ---------------- EMPTY CHECK ----------------
+        if image is None or image.size == 0:
             results[field] = ""
             continue
 
-        print(f"[INFO] Cropped shape: {cropped.shape}")
-
-        # ================= QR FIELD =================
+        # ---------------- QR HANDLING ----------------
         if field == "QR_Code":
-            print("🔍 Attempting QR decode on FULL image...")
-            qr_value = read_qr_from_image(img, verbose=True)
-            print(f"[RESULT] QR decoded value: '{qr_value}'")
-            results["QR_Code"] = qr_value
+            logger.info("Attempting QR decode...")
+            results[field] = read_qr_from_image(image, verbose=True)
             continue
 
-        # ================= OCR FIELD =================
-        gray = cv2.cvtColor(cropped, cv2.COLOR_BGR2GRAY)
-
-        _, thresh = cv2.threshold(
-            gray, 0, 255,
-            cv2.THRESH_BINARY + cv2.THRESH_OTSU
+        # ---------------- CONFIG SELECTION ----------------
+        config = FIELD_OCR_CONFIG.get(
+            field,
+            {"lang": LANG, "psm": DEFAULT_PSM, "oem": DEFAULT_OEM}
         )
 
-        lang = "eng" if field in ["KID_No", "Plus_Code"] else LANG
-        print(f"[INFO] OCR language: {lang}")
+        lang = config["lang"]
+        psm = config["psm"]
+        oem = config["oem"]
 
-        text = pytesseract.image_to_string(
-            thresh,
-            lang=lang,
-            config="--oem 3 --psm 6"
-        ).strip()
+        logger.info(f"{field} → lang={lang}, psm={psm}, oem={oem}")
 
-        print(f"[RAW OCR] '{text}'")
+        # ---------------- PREPROCESS ----------------
+        processed = preprocess_for_ocr(image)
+        if processed is None:
+            results[field] = ""
+            continue
 
-        text = normalize_wada_number(text)
+        # ---------------- OCR ----------------
+        text = run_tesseract(processed, lang, psm, oem)
+
+        # ---------------- CLEANING ----------------
+        if clean_text:
+            text = basic_text_cleanup(text)
+
         results[field] = text
 
-    print("\n================= OCR PIPELINE END =================\n")
     return results

@@ -2,23 +2,8 @@
 import cv2
 import argparse
 import os
-
-DEBUG_DIR = "QR_visualizations"
+from config import DEBUG_DIR
 os.makedirs(DEBUG_DIR, exist_ok=True)
-
-
-def crop_roi(img, roi, expand=0.15):
-    h, w = img.shape[:2]
-    x1, y1, x2, y2 = roi
-    x1 = max(0, int((x1 - expand) * w))
-    y1 = max(0, int((y1 - expand) * h))
-    x2 = min(w, int((x2 + expand) * w))
-    y2 = min(h, int((y2 + expand) * h))
-    return img[y1:y2, x1:x2]
-
-
-def upscale(img, scale=2):
-    return cv2.resize(img, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
 
 
 def main():

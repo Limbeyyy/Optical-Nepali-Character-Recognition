@@ -2,30 +2,24 @@ import cv2
 import time
 import os
 import json
-from plate_detector import PlateDetector
-from plate_preprocess import draw_plate_rois, adaptive_lighting, post_process_ocr
-from utils import shrink_bbox_vertical, shrink_bbox, shrink_vertical
-from ocr_bridge import ocr_image_rois
-from backend_pipeline import validate_ocr_with_api
-
-# ================= CONFIG =================
-LIVE_CAMERA = 0
-YOLO_MODEL = r"C:\Users\Hp\Desktop\Optical_Nepali_OCR\Plate_Detector\weights\plate_yolo.pt"
-JSON_PATH = r"C:\Users\Hp\Desktop\Optical_Nepali_OCR\OCR_Plate_Processor\Plate_Templates\default_plate_template.json"
-
-OUTPUT_DIR = r"C:\Users\Hp\Desktop\Optical_Nepali_OCR\OCR_Plate_Processor\Scanned_Plates"
-ROI_DIR = os.path.join(OUTPUT_DIR, "roi")
-HOLD_SECONDS = 5          # each round = 5 seconds
-MAX_OCR_ROUNDS = 5        # total rounds
-ocr_rounds_done = 0
 
 
-os.makedirs(OUTPUT_DIR, exist_ok=True)
-os.makedirs(ROI_DIR, exist_ok=True)
+from Plate_Detector.plate_detector import PlateDetector
+from OCR_Engine.plate_postprocess import  post_process_ocr
+from Plate_Detector.detector_utils import shrink_bbox
+from OCR_Engine.ocr_engine import ocr_image_rois
+from Plate_Detector.Plate_Backend.backend_pipeline import validate_ocr_with_api
+from config import YOLO_MODEL, JSON_PATH, OUTPUT_DIR, ROI_DIR, LIVE_CAMERA, HOLD_SECONDS, MAX_OCR_ROUNDS 
 
 # ================= LOAD ROI TEMPLATE =================
 with open(JSON_PATH, "r") as f:
     ROIS = json.load(f)
+
+
+# ================= OCR ROUNDS =================
+ocr_rounds_done = 0 # initialize OCR rounds counter
+verified_fields = {}  # persistent across rounds
+
 
 # ================= CAMERA INIT =================
 cap = cv2.VideoCapture(LIVE_CAMERA, cv2.CAP_DSHOW)
@@ -43,7 +37,7 @@ round_count = 0
 hold_active = False
 hold_start = 0
 
-print("✅ Monitoring live feed...")
+print("Monitoring live feed...")
 
 # ================= MAIN LOOP =================
 while True:
@@ -145,11 +139,28 @@ while True:
         round_count = 0
         hold_active = False
 
-        # Only validate API after at least 1 round
-        final_results = validate_ocr_with_api(ocr_results_rounds)
+        # Only validate API after at least 1 round and store updated values for next round
+        final_results, verified_fields, remaining_fields = validate_ocr_with_api(
+            ocr_results_rounds,
+            previously_verified=verified_fields
+        )
+       
         print("\nFINAL VALIDATED OCR RESULT:")
-        for k, v in final_results.items():
-            print(f"  {k}: {v}")
+
+        if verified_fields:
+            for field in [
+                "KID_No",
+                "Kataho_Address",
+                "Plus_Code",
+                "QR_Code",
+                "Local_Address",
+                "Ward_Address",
+                "City"
+            ]:
+                print(f"  {field}: {verified_fields.get(field)}")
+        else:
+            print("  No fields validated yet.")
+
 
         # Stop after MAX rounds
         if ocr_rounds_done >= MAX_OCR_ROUNDS:
@@ -163,4 +174,4 @@ while True:
 
 cap.release()
 cv2.destroyAllWindows()
-print("🛑 Done")
+print("Done")
