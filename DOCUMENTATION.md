@@ -34,7 +34,7 @@ The **Optical Nepali OCR System** is a comprehensive computer vision and OCR sol
 ---
 
 ## Architecture Overview
-![Architecture Overview](docs/architecture_overview.png)
+![Architecture Overview](docs/architecture_diagram/architecture_overview.png)
 
 ---
 
@@ -49,7 +49,7 @@ The **Optical Nepali OCR System** is a comprehensive computer vision and OCR sol
 - [`detector_utils.py`](file:///c:/Users/Hp/Desktop/Optical_Nepali_OCR/Plate_Detector/detector_utils.py) - Utility functions
 
 **Architecture**:
-![OCR Pipeline](docs/class_diagram.png)
+![OCR Pipeline](docs/architecture_diagram/class_diagram.png)
 
 **Key Functions**:
 - `detect(frame)` - Returns list of `(x1, y1, x2, y2, confidence)` tuples
@@ -68,7 +68,7 @@ The **Optical Nepali OCR System** is a comprehensive computer vision and OCR sol
 - [`plate_postprocess.py`](file:///c:/Users/Hp/Desktop/Optical_Nepali_OCR/OCR_Engine/plate_postprocess.py) - Field-specific text cleaning
 
 **OCR Pipeline**:
-![OCR Pipeline](docs/seq_diagram.png)
+![OCR Pipeline](docs/architecture_diagram/seq_diagram.png)
 
 **Field-Specific OCR Configurations**:
 | Field | Language | PSM | OEM | Notes |
@@ -91,7 +91,7 @@ The **Optical Nepali OCR System** is a comprehensive computer vision and OCR sol
 - [`qr_reader.py`](file:///c:/Users/Hp/Desktop/Optical_Nepali_OCR/QR_Processor/qr_reader.py) - Standalone QR reader
 
 **QR Detection Strategy**:
-![QR Detection Strategy](docs/QR_flowchart.png)
+![QR Detection Strategy](docs/architecture_diagram/QR_flowchart.png)
 
 ---
 
@@ -106,7 +106,7 @@ The **Optical Nepali OCR System** is a comprehensive computer vision and OCR sol
 - [`api_num_conversion.py`](file:///c:/Users/Hp/Desktop/Optical_Nepali_OCR/Plate_Detector/Plate_Backend/api_num_conversion.py) - Nepali-to-English digit conversion
 
 **Validation Flow**:
-![Validation Flow](docs/validation_flow.png)
+![Validation Flow](docs/architecture_diagram/validation_flow.png)
 
 ----
 
@@ -148,7 +148,7 @@ The **Optical Nepali OCR System** is a comprehensive computer vision and OCR sol
 ## Data Flow & Pipeline
 
 ### Live Camera OCR Pipeline (`ocr_main_live.py`)
-![Live Camera OCR Pipeline](docs/sequence_diagram.png)
+![Live Camera OCR Pipeline](docs/architecture_diagram/sequence_diagram.png)
 
 **Round-Based OCR Logic**:
 1. **Detection Hold**: Plate must be visible for `HOLD_SECONDS` (default: 5s)
@@ -160,7 +160,7 @@ The **Optical Nepali OCR System** is a comprehensive computer vision and OCR sol
 ---
 
 ### Web API Pipeline (`web/backend/main.py`)
-![Web API Pipeline](docs/web_api.png)
+![Web API Pipeline](docs/architecture_diagram/web_api.png)
 
 **API Endpoints**:
 - `POST /ocr` - Run OCR on uploaded image
@@ -222,7 +222,7 @@ for field, coords in ROIS.items():
 
 ### Image Preprocessing Pipeline
 
-![Image Preprocessing Pipeline](docs/flowchart.png)
+![Image Preprocessing Pipeline](docs/architecture_diagram/flowchart.png)
 
 **Implementation**:
 ```python
@@ -244,7 +244,7 @@ def preprocess_for_ocr(image):
 ### API Integration Architecture
 
 **Kataho API Workflow**:
-![Kataho API WorkFlow](docs/architecture_1.png)
+![Kataho API WorkFlow](docs/architecture_diagram/architecture_1.png)
 
 **API Endpoints**:
 1. **Login**: `https://kataho.app/api/login`
@@ -407,7 +407,7 @@ torch              # PyTorch (YOLO backend)
 
 ## System Workflow Summary
 
-![System Workflow](docs/architecture_2.png)
+![System Workflow](docs/architecture_diagram/architecture_2.png)
 ---
 
 ## Advanced Features
