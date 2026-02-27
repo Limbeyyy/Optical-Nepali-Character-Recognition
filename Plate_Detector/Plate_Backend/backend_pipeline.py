@@ -109,33 +109,33 @@ def validate_ocr_with_api(
                     verified_fields[field] = qr_id
                 continue
 
-            # Special handling for Local_Address & Ward_Address → convert OCR Nepali digits → English
             if field in ["Kataho_Address"]:
                 if ocr_val:
                     api_val_eng = normalize_kataho_address(api_val)
                     ocr_val_eng = normalize_kataho_address(ocr_val)
-                    
-                    if fields_match(api_val_eng, ocr_val_eng):
-                        verified_fields[field] = ocr_val
+                    if fields_match(api_val_eng, ocr_val_eng, word_threshold=75.0, match_mode="ratio"):
+                        verified_fields[field] = api_val  
                 continue
 
             if field in ["Ward_Address"]:
                 if ocr_val:
-                    
                     print(api_val)
-                    
                     print(ocr_val)
-                    if fields_match(api_val, ocr_val):
-                        verified_fields[field] = ocr_val
+                    if fields_match(api_val, ocr_val, word_threshold=90.0, match_mode="ratio"):
+                        verified_fields[field] = api_val  
                 continue
 
-            # Normal field comparison
-            if fields_match(api_val, ocr_val):
-                verified_fields[field] = api_val
+            if field == "KID_No":
+                if fields_match(api_val, ocr_val, word_threshold=95.0, match_mode="all"):
+                    verified_fields[field] = api_val
 
-        # Stop early if everything verified
-        if len(verified_fields) == len(all_fields):
-            break
+            elif field in ["Local_Address", "City", "Plus_Code"]:
+                if fields_match(api_val, ocr_val, word_threshold=90.0, match_mode="ratio"):
+                    verified_fields[field] = api_val
+
+            else:
+                if fields_match(api_val, ocr_val, word_threshold=90.0, match_mode="all"):
+                    verified_fields[field] = api_val
 
     # --------------------------------------------------------
     # Prepare outputs
